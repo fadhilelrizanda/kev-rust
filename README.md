@@ -1,9 +1,68 @@
-# Kev-0.8B in Rust
+# kev-rust
 
-Run Jared Palmer's Kev-0.8B using native Candle CPU or NVIDIA CUDA inference. The executable reads
-System One requests as JSONL and returns `choice`, `score`, and `noul` answers.
-Python is required once to export the checkpoint and to run the reference validation.
-It is not used by the Rust executable.
+**Kev-0.8B inference in pure Rust on [Candle](https://github.com/huggingface/candle). One binary, CPU or CUDA, no Python at runtime.**
+
+[Jared Palmer's Kev-0.8B](https://huggingface.co/jaredpalmer/kev-0.8b) answers structured
+questions about a state (`choice`, `score`, `noul`). This crate reimplements its Qwen3.5
+backbone and pointer head natively, and checks every answer against the official Python model.
+
+[**Interactive benchmark explorer and request builder**](https://fadhilelrizanda.github.io/kev-rust/)
+
+```bash
+echo '{"state":"I was charged twice. Please refund the duplicate payment.","questions":{"topic":{"type":"choice","instructions":"Which team should handle this?","criteria":{"billing":"charges and refunds","shipping":"delivery and tracking","technical":"bugs and outages"}}}}' \
+  | target/release/kev-rust
+```
+
+## Why trust it
+
+| Check | Result |
+| --- | --- |
+| Token IDs and option order vs. official Python fp32 | identical on 22 questions |
+| Decision (argmax) flips | **0** on CPU and CUDA |
+| Max probability error | `1.2e-6` CPU, `4.9e-5` CUDA (Python rounds its output) |
+| Precision | fp32 throughout, no quantization, TF32 off |
+| Unit tests | scan and convolution kernels compared with tensor references, CPU and CUDA |
+
+Parity data, logs and the exact pinned checkpoint, Candle and Kev revisions are in
+[`results/`](results/) and [`BENCHMARK.md`](BENCHMARK.md). Reproduce with `scripts/validate.py`.
+
+## Speed
+
+Warmed median, fp32. Hardware: two-vCPU Xeon (CPU) and Tesla T4 (GPU) on Google Colab.
+
+| Setup | Median |
+| --- | ---: |
+| CPU, Python fp32 (reference) | 3.38 s |
+| CPU, Rust shared-prefix batched | 3.47 s |
+| CPU, Rust shared-prefix batched (GPU-job VM) | 2.87 s |
+| T4 CUDA, Rust shared-prefix batched | **89.6 ms** |
+
+- **Shared-prefix batching is the real win**: the state is encoded once and reused by all
+  questions. 1.63x faster than recomputing full rows on CPU; 3.3x on a 16-question GPU request.
+- **Rust is not faster than PyTorch at warmed GPU compute.** The two are within roughly
+  +/-20% depending on scenario; PyTorch wins on a ~600-token context. The case for Rust here is
+  deployment, not raw speed: a single binary, and a reported cold start of 119 ms vs 1.5 s.
+- Small sample (16 warmed samples per mode, short requests, one run each). Treat as a
+  probe, not a production claim. Other CPUs, longer inputs and thread counts are untested.
+
+## Build
+
+```bash
+cargo build --release                  # CPU
+cargo build --release --features cuda  # needs nvcc
+```
+
+Export the checkpoint once (needs Python), then run:
+
+```bash
+uv venv --python 3.13 && uv pip install --python .venv/bin/python -r requirements.txt
+.venv/bin/python scripts/prepare.py
+target/release/kev-rust --input fixtures/requests.jsonl
+```
+
+Everything below is the detailed reference.
+
+---
 
 ## Run in Colab on CPU
 
@@ -117,15 +176,6 @@ it is never silently truncated. The command-line runner is not an HTTP server.
 The crate exposes `Runner::load(path, fused)` and `Runner::infer(request)` for the
 recommended CPU path. `predict`, `predict_batched`, and their `prefix` argument retain
 the individual comparison paths for experiments.
-
-The [Colab benchmark](BENCHMARK.md) measured 3.47 s warmed median inference versus
-5.65 s for the original Rust baseline on a two-vCPU runtime (Python measured 3.38 s).
-On an NVIDIA Tesla T4 GPU, Rust reached 80.12 ms on the fixture panel (32× faster than CPU)
-and 361 ms for 16-question heavy batching. A comparative GPU audit in [BENCHMARK.md](BENCHMARK.md#gpu-comparison-kev-rust-vs-official-python-pytorch-cuda)
-shows that while warmed GPU compute latency is comparable between Rust and PyTorch (due to shared
-GPU hardware bottlenecks), Rust provides a 12× faster cold start (119 ms vs 1.5 s), a ~35 MB standalone binary
-(vs 6–10 GB Docker image), predictable ~2.5 GB VRAM usage without PyTorch cache fragmentation, and safe multi-threaded concurrency without Python's GIL.
-All 22 parity questions matched within `1.3e-6` in probability on CPU and `4.9e-5` on CUDA.
 
 ## Verify and benchmark
 

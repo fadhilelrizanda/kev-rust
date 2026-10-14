@@ -1,0 +1,113 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>kev-rust</title>
+<style>
+:root{--bg:#fafaf8;--fg:#1b1b1a;--mut:#6b6b66;--card:#fff;--bd:#dcdcd6;--a:#c2410c;--b:#2563eb}
+@media(prefers-color-scheme:dark){:root{--bg:#141413;--fg:#ececea;--mut:#9a9a94;--card:#1d1d1b;--bd:#33332f;--a:#fb923c;--b:#60a5fa}}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--fg);font:16px/1.55 system-ui,sans-serif}
+main{max-width:860px;margin:0 auto;padding:32px 16px 64px}
+h1{margin:0 0 4px;font-size:2rem}h2{margin:40px 0 12px;font-size:1.25rem}
+.sub{color:var(--mut);margin:0 0 24px}
+.card{background:var(--card);border:1px solid var(--bd);border-radius:10px;padding:16px}
+.tabs{display:flex;flex-wrap:wrap;gap:6px;margin-bottom:14px}
+button,select,textarea,input{font:inherit;color:var(--fg)}
+.tab{border:1px solid var(--bd);background:var(--card);border-radius:20px;padding:4px 12px;cursor:pointer}
+.tab[aria-pressed=true]{background:var(--fg);color:var(--bg)}
+.row{display:grid;grid-template-columns:150px 1fr 80px;align-items:center;gap:10px;margin:8px 0;font-size:.9rem}
+.bar{height:16px;border-radius:4px;background:var(--b)}
+.bar.py{background:var(--a)}
+.row .v{text-align:right;font-variant-numeric:tabular-nums}
+.note{color:var(--mut);font-size:.85rem;margin-top:12px}
+label{display:block;margin:10px 0 4px;font-size:.9rem;color:var(--mut)}
+textarea,input,select{width:100%;background:var(--bg);border:1px solid var(--bd);border-radius:6px;padding:8px}
+pre{background:var(--bg);border:1px solid var(--bd);border-radius:6px;padding:10px;overflow:auto;font-size:.82rem;margin:8px 0}
+.q{border-top:1px solid var(--bd);margin-top:12px;padding-top:4px}
+.btn{border:1px solid var(--bd);background:var(--card);border-radius:6px;padding:6px 12px;cursor:pointer;margin-right:6px}
+@media(max-width:560px){.row{grid-template-columns:100px 1fr 70px}}
+</style>
+</head>
+<body>
+<main>
+<h1>kev-rust</h1>
+<p class="sub">Kev-0.8B in pure Rust on Candle. CPU or CUDA, fp32, no Python at runtime.
+<a href="https://github.com/fadhilelrizanda/kev-rust">Source</a></p>
+
+<h2>Benchmark explorer</h2>
+<div class="card">
+  <div class="tabs" id="tabs" role="group" aria-label="Scenario"></div>
+  <div id="bars"></div>
+  <p class="note" id="bnote"></p>
+</div>
+<p class="note">Tesla T4, CUDA 13, fp32, warmed median, Google Colab. Small sample; see
+<a href="https://github.com/fadhilelrizanda/kev-rust/blob/main/BENCHMARK.md">BENCHMARK.md</a>.
+Rust is not faster than PyTorch at warmed GPU compute. Prefix batching is the main gain.</p>
+
+<h2>Request builder</h2>
+<div class="card">
+  <label for="state">State (text or JSON)</label>
+  <textarea id="state" rows="3">I was charged twice. Please refund the duplicate payment.</textarea>
+  <div id="qs"></div>
+  <p><button class="btn" id="add">+ question</button><button class="btn" id="copy">Copy JSONL</button></p>
+  <pre id="out"></pre>
+  <pre id="cmd">target/release/kev-rust --input request.jsonl</pre>
+  <p class="note">Builds the input line for the CLI. Inference itself needs the exported weights and runs locally.</p>
+</div>
+</main>
+<script>
+const DATA={
+ "1 question":{n:1,py:163.38,pyr:89.55,rs:69.33,rr:53.79,ru:74.23},
+ "3 questions":{n:3,py:161.68,pyr:91.76,rs:102.35,rr:108.42,ru:121.93},
+ "8 questions":{n:8,py:234.51,pyr:436.81,rs:237.81,rr:527.83,ru:299.75},
+ "16 questions":{n:16,py:384.5,pyr:1180.75,rs:361.25,rr:1318.13,ru:569.35},
+ "600-token context":{n:4,py:386.14,pyr:973.12,rs:456.65,rr:1163.01,ru:474.6}
+};
+const LAB=[["py","Python, prefix","py"],["pyr","Python, full rows","py"],["rs","Rust, prefix batched","rs"],["rr","Rust, full rows","rs"],["ru","Rust, unbatched","rs"]];
+const tabs=document.getElementById('tabs'),bars=document.getElementById('bars'),bnote=document.getElementById('bnote');
+function show(k){
+  for(const b of tabs.children)b.setAttribute('aria-pressed',b.textContent===k);
+  const d=DATA[k],max=Math.max(...LAB.map(l=>d[l[0]]));
+  bars.innerHTML=LAB.map(([id,t,c])=>`<div class="row"><span>${t}</span><div><div class="bar ${c==='py'?'py':''}" style="width:${d[id]/max*100}%"></div></div><span class="v">${d[id].toFixed(1)} ms</span></div>`).join('');
+  bnote.textContent=`Rust prefix vs Python prefix: ${(d.rs/d.py).toFixed(2)}x the time (${d.rs<d.py?'Rust faster':'Python faster'}). Prefix vs Rust full rows: ${(d.rr/d.rs).toFixed(2)}x faster.`;
+}
+for(const k in DATA){const b=document.createElement('button');b.className='tab';b.textContent=k;b.onclick=()=>show(k);tabs.append(b)}
+show("16 questions");
+
+const TYPES={choice:{instructions:"Which team should handle this?",criteria:{billing:"charges and refunds",shipping:"delivery and tracking",technical:"bugs and outages"}},
+ score:{instructions:"How urgent is this request?",criteria:["can wait","this week","today","right now"]},
+ noul:{instructions:"Does this need urgent human attention?"}};
+const qs=document.getElementById('qs'),out=document.getElementById('out'),state=document.getElementById('state');
+let n=0;
+function addQ(type){
+  const id='q'+(++n),d=document.createElement('div');d.className='q';
+  d.innerHTML=`<label>Name</label><input class="nm" value="${type}${n}">
+   <label>Type</label><select class="ty"><option>choice</option><option>score</option><option>noul</option></select>
+   <label>Instructions</label><input class="ins">
+   <label class="cl">Criteria (JSON)</label><input class="cr">
+   <p><button class="btn rm">remove</button></p>`;
+  const ty=d.querySelector('.ty'),ins=d.querySelector('.ins'),cr=d.querySelector('.cr'),cl=d.querySelector('.cl');
+  const fill=()=>{const t=TYPES[ty.value];ins.value=t.instructions;cr.value=t.criteria?JSON.stringify(t.criteria):'';cr.hidden=cl.hidden=!t.criteria;render()};
+  ty.value=type;ty.onchange=fill;d.oninput=render;d.querySelector('.rm').onclick=()=>{d.remove();render()};
+  qs.append(d);fill();
+}
+function render(){
+  let s=state.value;try{const p=JSON.parse(s);if(p&&typeof p==='object')s=p}catch{}
+  const questions={};let err='';
+  for(const d of qs.children){
+    const q={type:d.querySelector('.ty').value,instructions:d.querySelector('.ins').value};
+    const c=d.querySelector('.cr');
+    if(!c.hidden){try{q.criteria=JSON.parse(c.value)}catch{err='Invalid criteria JSON'}}
+    questions[d.querySelector('.nm').value]=q;
+  }
+  out.textContent=err||JSON.stringify({state:s,questions});
+}
+state.oninput=render;
+document.getElementById('add').onclick=()=>addQ('choice');
+document.getElementById('copy').onclick=()=>navigator.clipboard&&navigator.clipboard.writeText(out.textContent);
+addQ('choice');addQ('noul');
+</script>
+</body>
+</html>

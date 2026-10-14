@@ -6,7 +6,7 @@
 questions about a state (`choice`, `score`, `noul`). This crate reimplements its Qwen3.5
 backbone and pointer head natively, and checks every answer against the official Python model.
 
-[**Interactive benchmark explorer and request builder**](https://fadhilelrizanda.github.io/kev-rust/)
+[**Interactive benchmark explorer and request builder**](http://fadhilelrizanda.me/kev-rust/)
 
 ```bash
 echo '{"state":"I was charged twice. Please refund the duplicate payment.","questions":{"topic":{"type":"choice","instructions":"Which team should handle this?","criteria":{"billing":"charges and refunds","shipping":"delivery and tracking","technical":"bugs and outages"}}}}' \
